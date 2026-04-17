@@ -12,6 +12,13 @@ __global__ void vecAdd(float *a, float *b, float *c, int n) {
     }
 }
 
+// ref program
+void vecAdd_ref(float *a, float *b, float *c, int n) {
+    for (int i = 0; i < n; i++) {
+        c[i] = a[i] + b[i];
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         printf("Usage: %s <vector_size>\n", argv[0]);
@@ -30,6 +37,7 @@ int main(int argc, char **argv) {
     float *a_h = (float*)malloc(n * sizeof(float));
     float *b_h = (float*)malloc(n * sizeof(float));
     float *c_h = (float*)malloc(n * sizeof(float));
+    float *c_ref = (float*)malloc(n * sizeof(float));
 
     // init vec with random values
     for (int i = 0; i < n; i++) {
@@ -63,6 +71,23 @@ int main(int argc, char **argv) {
 
     // copy res to host
     cudaMemcpy(c_h, c_d, n * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // ref program
+    vecAdd_ref(a_h, b_h, c_ref, n);
+
+    bool res_correct = true;
+    for (int i = 0; i < n; i++) {
+        if (abs(c_h[i] - c_ref[i]) > 1e-5) {
+            res_correct = false;
+            printf("Result verification failed at %d: CPU %.6f, GPU %.6f\n", i, c_ref[i], c_h[i]);
+        }
+    }
+
+    if (res_correct) {
+        printf("Vector addition successfully.\n");
+    } else {
+        printf("Vector addition failed.\n");
+    }
 
     cudaFree(a_d);
     cudaFree(b_d);
