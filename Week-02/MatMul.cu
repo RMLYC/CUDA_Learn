@@ -1,6 +1,8 @@
 #include <cuda_runtime.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 
 // MatMul native
@@ -65,10 +67,17 @@ int main(int argc, char **argv) {
     cudaMemcpy(d_a, a, m * k * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, b, k * n * sizeof(float), cudaMemcpyHostToDevice);
 
+    // Create CUDA events for kernel timing
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
     // Launch kernel
     dim3 blockSize(16, 16);
     dim3 gridSize((n + blockSize.x - 1) / blockSize.x, (m + blockSize.y - 1) / blockSize.y);
+    cudaEventRecord(start);
     MatMul<<<gridSize, blockSize>>>(d_a, d_b, d_c, m, n, k);
+    cudaEventRecord(stop);
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -78,26 +87,36 @@ int main(int argc, char **argv) {
 
     cudaDeviceSynchronize();
 
+    float gpu_time_ms = 0.0f;
+    cudaEventElapsedTime(&gpu_time_ms, start, stop);
+
     // Copy result back to host
     cudaMemcpy(c, d_c, m * n * sizeof(float), cudaMemcpyDeviceToHost);
 
     // reference
+    clock_t cpu_start = clock();
     MatMul_ref(a, b, c_ref, m, n, k);
+    clock_t cpu_end = clock();
+    double cpu_time_ms = (double)(cpu_end - cpu_start) * 1000.0 / CLOCKS_PER_SEC;
 
     // Verify results
     for (int i = 0; i < m * n; i++) {
-        if (abs(c[i] - c_ref[i]) > 1e-5) {
+        if (fabsf(c[i] - c_ref[i]) > 1e-5f) {
             printf("Error: c[%d] = %f, c_ref[%d] = %f\n", i, c[i], i, c_ref[i]);
             return -1;
         }
     }
 
     printf("Success!\n");
+    printf("GPU kernel time: %.3f ms\n", gpu_time_ms);
+    printf("CPU reference time: %.3f ms\n", cpu_time_ms);
 
     // Free device memory
     cudaFree(d_a);
     cudaFree(d_b);
     cudaFree(d_c);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
 
     // Free host memory
     free(a);
