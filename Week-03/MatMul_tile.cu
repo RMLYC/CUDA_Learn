@@ -5,17 +5,50 @@
 #include <time.h>
 
 
-// MatMul native
+// MatMul tile
+#define TILE_SIZE 16
+
 __global__ void MatMul(float *a, float *b, float *c, int m, int n, int k) {
     
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (col < n && row < m) { 
-        float sum = 0;
-        for (int i = 0; i < k; i++) {
-            sum += a[row * k + i] * b[i * n + col];
+    // allocate shared memory
+    __shared__ float As[TILE_SIZE][TILE_SIZE];
+    __shared__ float Bs[TILE_SIZE][TILE_SIZE];
+
+    float sum = 0.0f;
+    for (int t = 0; t < (k + TILE_SIZE - 1) / TILE_SIZE; t++) {
+
+        // load tile to shared memory
+        int a_offset = row * k + t * TILE_SIZE + threadIdx.x;
+        int b_offset = (t * TILE_SIZE + threadIdx.y) * n + col;
+
+        // load data a
+        if (row < m && t * TILE_SIZE + threadIdx.x < k){
+            As[threadIdx.y][threadIdx.x] = a[a_offset];
+        } else {
+            As[threadIdx.y][threadIdx.x] = 0.0f;
         }
+
+        // load data b
+        if (col < n && t * TILE_SIZE + threadIdx.y < k){
+            Bs[threadIdx.y][threadIdx.x] = b[b_offset];
+        } else {
+            Bs[threadIdx.y][threadIdx.x] = 0.0f;
+        }
+
+        __syncthreads();
+
+        // compute
+        for (int i = 0; i < TILE_SIZE; i++) {
+            sum += As[threadIdx.y][i] * Bs[i][threadIdx.x];
+        }
+        __syncthreads();
+    }
+    
+    // 添加边界检查以防止写入超出矩阵范围
+    if(row < m && col < n) {
         c[row * n + col] = sum;
     }
 }
